@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simulação de Diagnóstico Genético</title>
     <link rel="stylesheet" href="style.css">
+    <script src="secrets.js" defer></script>
     <script src="script.js" defer></script>
 </head>
 <body>
@@ -27,9 +28,14 @@
                 <p>Paciente: Lactente (1 ano e 6 meses, masculino)</p>
             </div>
             
-            <div id="wallet-display" class="wallet-card">
-                <span class="wallet-label">Orçamento</span>
-                <span id="total-money">R$ ---</span>
+            <div class="header-actions">
+                <div id="wallet-display" class="wallet-card">
+                    <span class="wallet-label">Orçamento</span>
+                    <span id="total-money">R$ ---</span>
+                </div>
+                <button id="conclude-btn" class="conclude-btn" onclick="openConcludeModal()">✅ Concluir caso</button>
+                <button id="report-btn" class="conclude-btn" onclick="downloadReport()" style="display:none;">📄 Baixar relatório (PDF)</button>
+                <button class="reset-btn" onclick="resetCase()" title="Apaga os exames e resultados e devolve o orçamento inicial">↺ Reiniciar caso</button>
             </div>
         </header>
 
@@ -41,6 +47,11 @@
                 <span id="notification-badge" class="badge-dot"></span>
             </button>
         </nav>
+
+        <div id="concluded-banner" class="concluded-banner" style="display:none;">
+            <span id="concluded-text"></span>
+            <button class="link-btn" onclick="downloadReport()">Baixar relatório novamente</button>
+        </div>
 
         <div id="tab-caso" class="tab-content active">
             <div class="card">
@@ -129,18 +140,39 @@
 
         <footer>
             <p>Simulação Genética Médica</p>
+            <p><i>Criado por: Profa. Dra. Karina Griesi e Carolina Souza Sanchez</i></p>
             <p id="timestamp"></p>
         </footer>
     </div>
 
-    <div id="sanger-modal" class="modal-overlay">
+    <div id="sanger-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="sanger-title">
         <div class="modal-content">
-            <h3>Requisição de Sequenciamento Sanger</h3>
-            <p>Especifique o gene alvo:</p>
-            <input type="text" id="sanger-gene-input" placeholder="Gene" class="gene-input">
+            <h3 id="sanger-title">Requisição de Sequenciamento Sanger</h3>
+            <p class="modal-subtitle">Paciente: <strong id="sanger-patient"></strong></p>
+            <label for="sanger-gene-input" class="modal-label">Gene alvo (símbolo oficial)</label>
+            <input type="text" id="sanger-gene-input" placeholder="Ex.: SPAST" class="gene-input" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-describedby="sanger-error sanger-warning">
+            <p id="sanger-error" class="modal-error" role="alert" style="display:none;"></p>
+            <p id="sanger-warning" class="modal-warning">⚠️ O exame custa <strong id="sanger-cost"></strong> e será cobrado mesmo que não sejam encontradas variantes no gene informado.</p>
             <div class="modal-actions">
                 <button class="cancel-btn" onclick="closeSangerModal()">Cancelar</button>
                 <button class="confirm-btn" onclick="confirmSangerRequest()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="conclude-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="conclude-title">
+        <div class="modal-content modal-form">
+            <h3 id="conclude-title">Concluir caso</h3>
+            <p class="modal-subtitle">Ao concluir, um relatório em PDF será gerado e não será mais possível solicitar exames.</p>
+            <div id="conclude-stats" class="conclude-stats"></div>
+            <label for="student-name" class="modal-label">Grupo *</label>
+            <input type="text" id="student-name" class="gene-input text-input" autocomplete="off" maxlength="120" placeholder="Ex.: Grupo 3">
+            <label for="hypothesis-input" class="modal-label">Hipótese diagnóstica *</label>
+            <textarea id="hypothesis-input" maxlength="1500" placeholder="Ex.: diagnóstico, gene e variante(s), padrão de herança"></textarea>
+            <p id="conclude-error" class="modal-error" role="alert" style="display:none;"></p>
+            <div class="modal-actions">
+                <button class="cancel-btn" onclick="closeConcludeModal()">Cancelar</button>
+                <button class="confirm-btn" onclick="confirmConclusion()">Concluir e gerar PDF</button>
             </div>
         </div>
     </div>
