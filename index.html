@@ -33,6 +33,8 @@
                     <span class="wallet-label">Orçamento</span>
                     <span id="total-money">R$ ---</span>
                 </div>
+                <button id="conclude-btn" class="conclude-btn" onclick="openConcludeModal()">✅ Concluir caso</button>
+                <button id="report-btn" class="conclude-btn" onclick="downloadReport()" style="display:none;">📄 Baixar relatório (PDF)</button>
                 <button class="reset-btn" onclick="resetCase()" title="Apaga os exames e resultados e devolve o orçamento inicial">↺ Reiniciar caso</button>
             </div>
         </header>
@@ -45,6 +47,11 @@
                 <span id="notification-badge" class="badge-dot"></span>
             </button>
         </nav>
+
+        <div id="concluded-banner" class="concluded-banner" style="display:none;">
+            <span id="concluded-text"></span>
+            <button class="link-btn" onclick="downloadReport()">Baixar relatório novamente</button>
+        </div>
 
         <details id="case-summary" class="case-summary" style="display:none;">
             <summary>📋 Resumo do caso</summary>
@@ -166,6 +173,25 @@
             <div class="modal-actions">
                 <button class="cancel-btn" onclick="closeSangerModal()">Cancelar</button>
                 <button class="confirm-btn" onclick="confirmSangerRequest()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="conclude-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="conclude-title">
+        <div class="modal-content modal-form">
+            <h3 id="conclude-title">Concluir caso</h3>
+            <p class="modal-subtitle">Ao concluir, um relatório em PDF será gerado e não será mais possível solicitar exames.</p>
+            <div id="conclude-stats" class="conclude-stats"></div>
+            <label for="student-name" class="modal-label">Seu nome *</label>
+            <input type="text" id="student-name" class="gene-input text-input" autocomplete="name" maxlength="120">
+            <label for="hypothesis-input" class="modal-label">Hipótese diagnóstica *</label>
+            <textarea id="hypothesis-input" maxlength="1500" placeholder="Ex.: diagnóstico, gene e variante(s), padrão de herança"></textarea>
+            <label for="justification-input" class="modal-label">Justificativa (opcional)</label>
+            <textarea id="justification-input" maxlength="3000" placeholder="Quais achados clínicos e exames sustentam a hipótese?"></textarea>
+            <p id="conclude-error" class="modal-error" role="alert" style="display:none;"></p>
+            <div class="modal-actions">
+                <button class="cancel-btn" onclick="closeConcludeModal()">Cancelar</button>
+                <button class="confirm-btn" onclick="confirmConclusion()">Concluir e gerar PDF</button>
             </div>
         </div>
     </div>

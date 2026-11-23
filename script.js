@@ -45,7 +45,7 @@ function storageKey() {
 }
 
 function newState() {
-    return { startedAt: Date.now(), money: CONFIG.initialMoney, orders: [] };
+    return { startedAt: Date.now(), money: CONFIG.initialMoney, orders: [], conclusion: null };
 }
 
 function loadState() {
@@ -81,8 +81,15 @@ document.addEventListener("DOMContentLoaded", () => {
         if (e.key === "Enter") confirmSangerRequest();
     });
     geneInput.addEventListener("input", () => setSangerError(""));
+    ["student-name", "hypothesis-input", "justification-input"].forEach(id =>
+        document.getElementById(id).addEventListener("input", () => setConcludeError("")));
     document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape" && pendingSangerExamId) closeSangerModal();
+        if (e.key !== "Escape") return;
+        if (pendingSangerExamId) closeSangerModal();
+        if (document.getElementById("conclude-modal").style.display === "flex") closeConcludeModal();
+    });
+    document.getElementById("conclude-modal").addEventListener("click", (e) => {
+        if (e.target.id === "conclude-modal") closeConcludeModal();
     });
     document.getElementById("sanger-modal").addEventListener("click", (e) => {
         if (e.target.id === "sanger-modal") closeSangerModal();
@@ -142,6 +149,7 @@ function startCase(savedState) {
     });
     updateEmptyState();
     initExamCategories();
+    updateConclusionUi();
 
     if (state.orders.length > 0) {
         showToast(`Progresso restaurado: ${state.orders.length} exame(s) solicitado(s).`);
@@ -266,7 +274,9 @@ function showExamsByCategory(category, btnElement) {
         div.id = `exam-card-${exam.id}`;
 
         let action;
-        if (!order) {
+        if (!order && state.conclusion) {
+            action = `<button class="exam-btn" disabled>Caso concluído</button>`;
+        } else if (!order) {
             action = `<button class="exam-btn" onclick="buyExam('${exam.id}')">Solicitar Exame</button>`;
         } else if (!isReady(order)) {
             action = `<div class="exam-status">${progressHtml(order)}</div>`;
@@ -302,6 +312,10 @@ function openResult(examId) {
 
 function buyExam(examId) {
     if (findOrder(examId)) return;
+    if (state.conclusion) {
+        showToast("O caso já foi concluído. Reinicie o caso para solicitar novos exames.", "error");
+        return;
+    }
     const exam = EXAMS_DB.find(e => e.id === examId);
     if (CONFIG.money < exam.cost) {
         showToast("Saldo insuficiente!", "error");
@@ -500,4 +514,243 @@ function showToast(message, type = "info") {
 function updateTimestamp() {
     const started = state ? new Date(state.startedAt) : new Date();
     document.getElementById("timestamp").innerText = `Caso iniciado em: ${started.toLocaleString('pt-BR')}`;
+}
+
+/**
+ * CONCLUSÃO DO CASO E RELATÓRIO EM PDF
+ */
+const PDF_LIBS = ["vendor/jspdf.umd.min.js", "vendor/jspdf.plugin.autotable.min.js"];
+
+function examName(exam) {
+    if (exam.category === "NGS") return exam.label;
+    if (exam.category === "Paternidade") return "Teste de paternidade (STR)";
+    if (exam.category === "Sanger") return "Sequenciamento Sanger";
+    return exam.category;
+}
+
+function examPatient(exam) {
+    if (exam.category === "NGS") {
+        return /trio/i.test(exam.label) ? "Trio: II-1, I-1 e I-2" : "II-1 (probando)";
+    }
+    return exam.label;
+}
+
+function totalSpent() {
+    return CONFIG.initialMoney - state.money;
+}
+
+function updateConclusionUi() {
+    const concluded = !!state.conclusion;
+    document.getElementById("conclude-btn").style.display = concluded ? "none" : "inline-block";
+    document.getElementById("report-btn").style.display = concluded ? "inline-block" : "none";
+    const banner = document.getElementById("concluded-banner");
+    banner.style.display = concluded ? "flex" : "none";
+    if (concluded) {
+        document.getElementById("concluded-text").innerText =
+            `Caso concluído por ${state.conclusion.studentName} em ${new Date(state.conclusion.concludedAt).toLocaleString('pt-BR')}.`;
+    }
+}
+
+function openConcludeModal() {
+    if (state.conclusion) { downloadReport(); return; }
+    const pending = state.orders.filter(o => !isReady(o)).length;
+    if (pending > 0) {
+        showToast(`Aguarde ${pending} exame(s) em análise antes de concluir o caso.`, "error");
+        return;
+    }
+    document.getElementById("conclude-stats").innerHTML = `
+        <div><span>Exames solicitados</span><strong>${state.orders.length}</strong></div>
+        <div><span>Total gasto</span><strong>${formatCurrency(totalSpent())}</strong></div>
+        <div><span>Saldo restante</span><strong>${formatCurrency(state.money)}</strong></div>`;
+    setConcludeError("");
+    document.getElementById("conclude-modal").style.display = "flex";
+    setTimeout(() => document.getElementById("student-name").focus(), 50);
+}
+
+function closeConcludeModal() {
+    document.getElementById("conclude-modal").style.display = "none";
+}
+
+function setConcludeError(message) {
+    const el = document.getElementById("conclude-error");
+    el.innerText = message;
+    el.style.display = message ? "block" : "none";
+}
+
+async function confirmConclusion() {
+    const studentName = document.getElementById("student-name").value.trim();
+    const hypothesis = document.getElementById("hypothesis-input").value.trim();
+    const justification = document.getElementById("justification-input").value.trim();
+
+    if (!studentName) { setConcludeError("Informe seu nome."); document.getElementById("student-name").focus(); return; }
+    if (!hypothesis) { setConcludeError("Descreva sua hipótese diagnóstica."); document.getElementById("hypothesis-input").focus(); return; }
+    if (state.orders.some(o => !isReady(o))) { setConcludeError("Ainda há exames em análise. Aguarde os resultados."); return; }
+
+    state.conclusion = { studentName, hypothesis, justification, concludedAt: Date.now() };
+    saveState();
+    closeConcludeModal();
+    updateConclusionUi();
+    const category = currentCategory();
+    if (category) showExamsByCategory(category);
+    await downloadReport();
+}
+
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+        const el = document.createElement("script");
+        el.src = src;
+        el.onload = resolve;
+        el.onerror = () => reject(new Error(`não foi possível carregar ${src}`));
+        document.head.appendChild(el);
+    });
+}
+
+// As fontes padrão do PDF só cobrem o alfabeto latino; troca o que estiver fora dele.
+function pdfText(text) {
+    return String(text ?? "")
+        .replace(/[−‐‑]/g, "-")
+        .replace(/[→➡]/g, "->")
+        .replace(/[←]/g, "<-")
+        .replace(/[≤]/g, "<=").replace(/[≥]/g, ">=")
+        .replace(/[^\n\x20-\x7E\xA0-\xFF–—‘’“”•…€]/g, "?");
+}
+
+function formatDuration(ms) {
+    const minutes = Math.round(ms / 60000);
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} h ${minutes % 60} min`;
+    return `${Math.floor(hours / 24)} dia(s) e ${hours % 24} h`;
+}
+
+async function downloadReport() {
+    if (!state.conclusion) return;
+    const button = document.getElementById("report-btn");
+    button.disabled = true;
+    showToast("Gerando relatório em PDF...");
+    try {
+        for (const src of PDF_LIBS) await loadScript(src);
+        const doc = buildReport(state);
+        doc.save(reportFileName(state));
+        showToast("Relatório baixado.", "success");
+    } catch (err) {
+        showToast(`Erro ao gerar o PDF: ${err.message}`, "error");
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function reportFileName(st) {
+    const slug = st.conclusion.studentName.normalize("NFD").replace(/[̀-ͯ]/g, "")
+        .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "aluno";
+    const date = new Date(st.conclusion.concludedAt).toISOString().slice(0, 10);
+    return `relatorio-caso-paraplegia-${slug}-${date}.pdf`;
+}
+
+function buildReport(st) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 15;
+    const navy = [15, 23, 42], blue = [37, 99, 235], muted = [100, 116, 139];
+    const fmtDate = ts => new Date(ts).toLocaleString('pt-BR', { dateStyle: "short", timeStyle: "short" });
+    const c = st.conclusion;
+
+    // Cabeçalho
+    doc.setFillColor(...navy);
+    doc.rect(0, 0, pageW, 30, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(16);
+    doc.text("Relatório do Caso Clínico", margin, 14);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    doc.text(pdfText("Paraplegia Espástica · Simulação de Diagnóstico Genético"), margin, 22);
+
+    let y = 40;
+    const section = (title) => {
+        if (y > 260) { doc.addPage(); y = 20; }
+        doc.setTextColor(...blue); doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+        doc.text(pdfText(title), margin, y);
+        doc.setDrawColor(226, 232, 240); doc.line(margin, y + 2, pageW - margin, y + 2);
+        y += 6;
+    };
+    const after = () => { y = doc.lastAutoTable.finalY + 10; };
+    const keyValue = { theme: "plain", styles: { fontSize: 10, cellPadding: 1.8, textColor: [30, 41, 59] },
+        columnStyles: { 0: { fontStyle: "bold", cellWidth: 50, textColor: [71, 85, 105] } },
+        margin: { left: margin, right: margin, bottom: 20 } };
+
+    section("Identificação");
+    doc.autoTable({ ...keyValue, startY: y, body: [
+        ["Aluno(a)", pdfText(c.studentName)],
+        ["Início do caso", fmtDate(st.startedAt)],
+        ["Conclusão", fmtDate(c.concludedAt)],
+        ["Tempo total", formatDuration(c.concludedAt - st.startedAt)],
+    ]});
+    after();
+
+    section("Hipótese diagnóstica");
+    const hypRows = [["Hipótese", pdfText(c.hypothesis)]];
+    if (c.justification) hypRows.push(["Justificativa", pdfText(c.justification)]);
+    doc.autoTable({ ...keyValue, startY: y, body: hypRows });
+    after();
+
+    section("Resumo dos gastos");
+    const orders = [...st.orders].sort((a, b) => a.orderedAt - b.orderedAt)
+        .map(o => ({ order: o, exam: EXAMS_DB.find(e => e.id === o.id) })).filter(x => x.exam);
+    const spent = orders.reduce((sum, x) => sum + x.exam.cost, 0);
+    doc.autoTable({ ...keyValue, startY: y, body: [
+        ["Orçamento inicial", formatCurrency(CONFIG.initialMoney)],
+        ["Total gasto", `${formatCurrency(spent)} (${Math.round(spent / CONFIG.initialMoney * 100)}% do orçamento)`],
+        ["Saldo final", formatCurrency(CONFIG.initialMoney - spent)],
+        ["Exames solicitados", String(orders.length)],
+    ].map(r => r.map(pdfText))});
+    after();
+
+    if (orders.length > 0) {
+        const byCategory = {};
+        orders.forEach(({ exam }) => {
+            byCategory[exam.category] = byCategory[exam.category] || { n: 0, total: 0 };
+            byCategory[exam.category].n += 1;
+            byCategory[exam.category].total += exam.cost;
+        });
+        doc.autoTable({
+            startY: y, margin: { left: margin, right: margin, bottom: 20 }, theme: "striped",
+            styles: { fontSize: 9.5, cellPadding: 2 }, headStyles: { fillColor: navy },
+            head: [["Tipo de exame", "Quantidade", "Gasto", "% do gasto"]],
+            body: Object.entries(byCategory).sort((a, b) => b[1].total - a[1].total).map(([cat, v]) => [
+                pdfText(cat), String(v.n), pdfText(formatCurrency(v.total)), `${Math.round(v.total / spent * 100)}%`]),
+            columnStyles: { 1: { halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" } },
+        });
+        after();
+    }
+
+    section("Exames solicitados");
+    if (orders.length === 0) {
+        doc.setTextColor(...muted); doc.setFont("helvetica", "italic"); doc.setFontSize(10);
+        doc.text("Nenhum exame foi solicitado.", margin, y + 2);
+    } else {
+        doc.autoTable({
+            startY: y, margin: { left: margin, right: margin, bottom: 20 }, theme: "striped",
+            styles: { fontSize: 9, cellPadding: 2, valign: "middle" }, headStyles: { fillColor: navy },
+            head: [["#", "Exame", "Paciente", "Gene alvo", "Solicitado em", "Custo"]],
+            body: orders.map(({ order, exam }, i) => [
+                String(i + 1), pdfText(examName(exam)), pdfText(examPatient(exam)),
+                order.gene ? pdfText(order.gene) : "-", fmtDate(order.orderedAt), pdfText(formatCurrency(exam.cost))]),
+            foot: [["", "Total", "", "", "", pdfText(formatCurrency(spent))]], showFoot: "lastPage",
+            footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: "bold" },
+            columnStyles: { 0: { halign: "center", cellWidth: 8 }, 3: { halign: "center" }, 5: { halign: "right", cellWidth: 26 } },
+        });
+    }
+
+    // Rodapé em todas as páginas
+    const pages = doc.getNumberOfPages();
+    const pageH = doc.internal.pageSize.getHeight();
+    for (let i = 1; i <= pages; i++) {
+        doc.setPage(i);
+        doc.setDrawColor(226, 232, 240); doc.line(margin, pageH - 14, pageW - margin, pageH - 14);
+        doc.setTextColor(...muted); doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+        doc.text(pdfText("Simulação Genética Médica · Criado por: Profa. Dra. Karina Griesi e Carolina Souza Sanchez"), margin, pageH - 9);
+        doc.text(`Gerado em ${fmtDate(Date.now())} · Página ${i} de ${pages}`, pageW - margin, pageH - 9, { align: "right" });
+    }
+    return doc;
 }
