@@ -5,7 +5,7 @@
  * Uso:  SENHA='a-senha' node tools/build-secrets.mjs caminho/para/gabarito.source.json
  *
  * O JSON de origem contém o gabarito: NÃO o coloque no repositório.
- * Formato: { "highlightTerms": ["GENE"], "exams": [ ...exames... ] }
+ * Formato: { "exams": [ ...exames... ] }
  * Exames do tipo "input_gene" usam "correctGenes", "successResult" e "failResult".
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -51,7 +51,7 @@ for (const exam of source.exams) {
     exams.push({ ...rest, variants });
 }
 
-const payload = await encrypt(password, salt, JSON.stringify({ highlightTerms: source.highlightTerms || [], exams }));
+const payload = await encrypt(password, salt, JSON.stringify({ exams }));
 const out = { v: 1, iterations: ITERATIONS, salt: b64(salt), ...payload };
 writeFileSync(new URL('../secrets.js', import.meta.url),
     `// Gerado por tools/build-secrets.mjs — não edite à mão.\nconst SECRETS = ${JSON.stringify(out)};\n`);

@@ -10,7 +10,6 @@ const CONFIG = {
 };
 
 let EXAMS_DB = [];
-let HIGHLIGHT_TERMS = [];
 let sessionPassword = null;
 let displayedMoney = CONFIG.initialMoney;
 let moneyAnimationId = null;
@@ -113,7 +112,6 @@ async function tryLogin() {
     try {
         const data = JSON.parse(await decryptSecret(input, SECRETS));
         EXAMS_DB = data.exams;
-        HIGHLIGHT_TERMS = (data.highlightTerms || []).map(t => t.toUpperCase());
         sessionPassword = input;
         document.getElementById("password-container").style.display = "none";
         document.getElementById("game-container").style.display = "flex";
@@ -482,9 +480,7 @@ function generateHtmlFromCSV(title, csvText) {
     for (let i = 1; i < rows.length; i++) {
         const cols = rows[i].slice(0, width);
         while (cols.length < width) cols.push("");
-        const isHighlight = cols.some(c => HIGHLIGHT_TERMS.some(t => c.toUpperCase().includes(t)));
-
-        html += `<tr class="${isHighlight ? 'highlight-variant' : ''}">`;
+        html += '<tr>';
         cols.forEach(c => html += `<td>${c}</td>`);
         html += '</tr>';
     }
