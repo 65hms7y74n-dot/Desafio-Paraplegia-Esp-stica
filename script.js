@@ -4,8 +4,8 @@
  * (gerado por tools/build-secrets.mjs) e só são abertos com a senha.
  */
 const CONFIG = {
-    initialMoney: 40000,
-    money: 40000,
+    initialMoney: 52800,
+    money: 52800,
     examDelay: 8000 // 8 segundos de processamento
 };
 
