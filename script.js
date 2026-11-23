@@ -81,7 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (e.key === "Enter") confirmSangerRequest();
     });
     geneInput.addEventListener("input", () => setSangerError(""));
-    ["student-name", "hypothesis-input", "justification-input"].forEach(id =>
+    ["student-name", "hypothesis-input"].forEach(id =>
         document.getElementById(id).addEventListener("input", () => setConcludeError("")));
     document.addEventListener("keydown", (e) => {
         if (e.key !== "Escape") return;
@@ -535,6 +535,11 @@ function examPatient(exam) {
     return exam.label;
 }
 
+// Conclusões salvas antes da troca de "nome" por "grupo" usam studentName
+function conclusionGroup(conclusion) {
+    return conclusion.group || conclusion.studentName || "";
+}
+
 function totalSpent() {
     return CONFIG.initialMoney - state.money;
 }
@@ -547,7 +552,7 @@ function updateConclusionUi() {
     banner.style.display = concluded ? "flex" : "none";
     if (concluded) {
         document.getElementById("concluded-text").innerText =
-            `Caso concluído por ${state.conclusion.studentName} em ${new Date(state.conclusion.concludedAt).toLocaleString('pt-BR')}.`;
+            `Caso concluído pelo grupo "${conclusionGroup(state.conclusion)}" em ${new Date(state.conclusion.concludedAt).toLocaleString('pt-BR')}.`;
     }
 }
 
@@ -580,13 +585,12 @@ function setConcludeError(message) {
 async function confirmConclusion() {
     const studentName = document.getElementById("student-name").value.trim();
     const hypothesis = document.getElementById("hypothesis-input").value.trim();
-    const justification = document.getElementById("justification-input").value.trim();
 
-    if (!studentName) { setConcludeError("Informe seu nome."); document.getElementById("student-name").focus(); return; }
+    if (!studentName) { setConcludeError("Informe o grupo."); document.getElementById("student-name").focus(); return; }
     if (!hypothesis) { setConcludeError("Descreva sua hipótese diagnóstica."); document.getElementById("hypothesis-input").focus(); return; }
     if (state.orders.some(o => !isReady(o))) { setConcludeError("Ainda há exames em análise. Aguarde os resultados."); return; }
 
-    state.conclusion = { studentName, hypothesis, justification, concludedAt: Date.now() };
+    state.conclusion = { group: studentName, hypothesis, concludedAt: Date.now() };
     saveState();
     closeConcludeModal();
     updateConclusionUi();
@@ -642,8 +646,8 @@ async function downloadReport() {
 }
 
 function reportFileName(st) {
-    const slug = st.conclusion.studentName.normalize("NFD").replace(/[̀-ͯ]/g, "")
-        .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "aluno";
+    const slug = conclusionGroup(st.conclusion).normalize("NFD").replace(/[̀-ͯ]/g, "")
+        .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "grupo";
     const date = new Date(st.conclusion.concludedAt).toISOString().slice(0, 10);
     return `relatorio-caso-paraplegia-${slug}-${date}.pdf`;
 }
@@ -681,7 +685,7 @@ function buildReport(st) {
 
     section("Identificação");
     doc.autoTable({ ...keyValue, startY: y, body: [
-        ["Aluno(a)", pdfText(c.studentName)],
+        ["Grupo", pdfText(conclusionGroup(c))],
         ["Início do caso", fmtDate(st.startedAt)],
         ["Conclusão", fmtDate(c.concludedAt)],
         ["Tempo total", formatDuration(c.concludedAt - st.startedAt)],
@@ -689,15 +693,35 @@ function buildReport(st) {
     after();
 
     section("Hipótese diagnóstica");
-    const hypRows = [["Hipótese", pdfText(c.hypothesis)]];
-    if (c.justification) hypRows.push(["Justificativa", pdfText(c.justification)]);
-    doc.autoTable({ ...keyValue, startY: y, body: hypRows });
+    doc.autoTable({ ...keyValue, startY: y, body: [["Hipótese", pdfText(c.hypothesis)]] });
     after();
 
-    section("Resumo dos gastos");
     const orders = [...st.orders].sort((a, b) => a.orderedAt - b.orderedAt)
         .map(o => ({ order: o, exam: EXAMS_DB.find(e => e.id === o.id) })).filter(x => x.exam);
     const spent = orders.reduce((sum, x) => sum + x.exam.cost, 0);
+
+    section("Exames solicitados");
+    if (orders.length === 0) {
+        doc.setTextColor(...muted); doc.setFont("helvetica", "italic"); doc.setFontSize(10);
+        doc.text("Nenhum exame foi solicitado.", margin, y + 2);
+        y += 12;
+    } else {
+        doc.autoTable({
+            startY: y, margin: { left: margin, right: margin, bottom: 20 }, theme: "striped",
+            styles: { fontSize: 9, cellPadding: 2, valign: "middle" }, headStyles: { fillColor: navy },
+            head: [["#", "Exame", "Paciente", "Gene alvo", "Solicitado em", "Custo"]],
+            body: orders.map(({ order, exam }, i) => [
+                String(i + 1), pdfText(examName(exam)), pdfText(examPatient(exam)),
+                order.gene ? pdfText(order.gene) : "-", fmtDate(order.orderedAt), pdfText(formatCurrency(exam.cost))]),
+            foot: [["", "Total", "", "", "", pdfText(formatCurrency(spent))]], showFoot: "lastPage",
+            footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: "bold" },
+            columnStyles: { 0: { halign: "center", cellWidth: 8 }, 3: { halign: "center" }, 5: { halign: "right", cellWidth: 26 } },
+        });
+        after();
+    }
+
+
+    section("Resumo dos gastos");
     doc.autoTable({ ...keyValue, startY: y, body: [
         ["Orçamento inicial", formatCurrency(CONFIG.initialMoney)],
         ["Total gasto", `${formatCurrency(spent)} (${Math.round(spent / CONFIG.initialMoney * 100)}% do orçamento)`],
@@ -722,24 +746,6 @@ function buildReport(st) {
             columnStyles: { 1: { halign: "center" }, 2: { halign: "right" }, 3: { halign: "right" } },
         });
         after();
-    }
-
-    section("Exames solicitados");
-    if (orders.length === 0) {
-        doc.setTextColor(...muted); doc.setFont("helvetica", "italic"); doc.setFontSize(10);
-        doc.text("Nenhum exame foi solicitado.", margin, y + 2);
-    } else {
-        doc.autoTable({
-            startY: y, margin: { left: margin, right: margin, bottom: 20 }, theme: "striped",
-            styles: { fontSize: 9, cellPadding: 2, valign: "middle" }, headStyles: { fillColor: navy },
-            head: [["#", "Exame", "Paciente", "Gene alvo", "Solicitado em", "Custo"]],
-            body: orders.map(({ order, exam }, i) => [
-                String(i + 1), pdfText(examName(exam)), pdfText(examPatient(exam)),
-                order.gene ? pdfText(order.gene) : "-", fmtDate(order.orderedAt), pdfText(formatCurrency(exam.cost))]),
-            foot: [["", "Total", "", "", "", pdfText(formatCurrency(spent))]], showFoot: "lastPage",
-            footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: "bold" },
-            columnStyles: { 0: { halign: "center", cellWidth: 8 }, 3: { halign: "center" }, 5: { halign: "right", cellWidth: 26 } },
-        });
     }
 
     // Rodapé em todas as páginas

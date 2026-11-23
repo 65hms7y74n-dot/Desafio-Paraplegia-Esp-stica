@@ -182,12 +182,10 @@
             <h3 id="conclude-title">Concluir caso</h3>
             <p class="modal-subtitle">Ao concluir, um relatório em PDF será gerado e não será mais possível solicitar exames.</p>
             <div id="conclude-stats" class="conclude-stats"></div>
-            <label for="student-name" class="modal-label">Seu nome *</label>
-            <input type="text" id="student-name" class="gene-input text-input" autocomplete="name" maxlength="120">
+            <label for="student-name" class="modal-label">Grupo *</label>
+            <input type="text" id="student-name" class="gene-input text-input" autocomplete="off" maxlength="120" placeholder="Ex.: Grupo 3">
             <label for="hypothesis-input" class="modal-label">Hipótese diagnóstica *</label>
             <textarea id="hypothesis-input" maxlength="1500" placeholder="Ex.: diagnóstico, gene e variante(s), padrão de herança"></textarea>
-            <label for="justification-input" class="modal-label">Justificativa (opcional)</label>
-            <textarea id="justification-input" maxlength="3000" placeholder="Quais achados clínicos e exames sustentam a hipótese?"></textarea>
             <p id="conclude-error" class="modal-error" role="alert" style="display:none;"></p>
             <div class="modal-actions">
                 <button class="cancel-btn" onclick="closeConcludeModal()">Cancelar</button>
