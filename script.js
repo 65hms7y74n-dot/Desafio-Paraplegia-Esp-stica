@@ -1,92 +1,35 @@
 /**
- * CONFIGURAÇÕES GERAIS - CASO SPG11
+ * CONFIGURAÇÕES GERAIS
+ * O catálogo de exames e os resultados ficam cifrados em secrets.js
+ * (gerado por tools/build-secrets.mjs) e só são abertos com a senha.
  */
 const CONFIG = {
-    accessHash: "RzNub21AbXJwYg==", // Senha Base64: G3nom@mrpb
     initialMoney: 40000,
     money: 40000,
     examDelay: 8000 // 8 segundos de processamento
 };
 
+let EXAMS_DB = [];
+let HIGHLIGHT_TERMS = [];
+let sessionPassword = null;
+let displayedMoney = CONFIG.initialMoney;
+let moneyAnimationId = null;
+
 /**
- * DATABASE DE EXAMES ATUALIZADA
+ * CRIPTOGRAFIA (PBKDF2 + AES-GCM)
  */
-const EXAMS_DB = [
-    {
-        id: "cgh_probando",
-        category: "Array-CGH",
-        label: "Probando (M.S.)",
-        cost: 3000,
-        type: "text",
-        result: "<strong>Resultado array-CGH probando:</strong> Ausência de variações de número de cópias (CNVs) clinicamente relevantes. Foram identificadas múltiplas regiões de ausência de heterozigose (AOH), totalizando ~150Mb, consistente com a consanguinidade parental."
-    },
-    {
-        id: "sanger_probando",
-        category: "Sanger",
-        label: "Sanger Probando",
-        cost: 600,
-        type: "input_gene",
-        correctGenes: ["SPG11"],
-        successResult: "<strong>Sanger Probando (Gene SPG11):</strong> Detectada a variante patogênica NM_025137.4:c.4841dupA (p.Met1614Asnfs*4) em <strong>homozigose</strong>.",
-        failResult: "<strong>Sanger Probando:</strong> Foram investigados os exons do gene solicitado. Não foram detectadas variantes de interesse clínico para este caso."
-    },
-    {
-        id: "sanger_mae",
-        category: "Sanger",
-        label: "Sanger Mãe",
-        cost: 600,
-        type: "input_gene",
-        correctGenes: ["SPG11"],
-        successResult: "<strong>Sanger Mãe (Gene SPG11):</strong> Detectada a variante c.4841dupA em <strong>heterozigose</strong> (Portadora assintomática).",
-        failResult: "<strong>Sanger Mãe:</strong> Negativo para a região solicitada."
-    },
-    {
-        id: "sanger_pai",
-        category: "Sanger",
-        label: "Sanger Pai",
-        cost: 600,
-        type: "input_gene",
-        correctGenes: ["SPG11"],
-        successResult: "<strong>Sanger Pai (Gene SPG11):</strong> Detectada a variante c.4841dupA em <strong>heterozigose</strong> (Portador assintomático).",
-        failResult: "<strong>Sanger Pai:</strong> Negativo para a região solicitada."
-    },
-    {
-        id: "painel_probando",
-        category: "NGS",
-        label: "Painel Paraplegias (Probando)",
-        cost: 4000,
-        type: "csv_filter",
-        filename: "CG2_AtInt_caso_paraplegia_espastica_painel_probando.csv",
-        resultTitle: "Painel Paraplegias (Probando)"
-    },
-    {
-        id: "painel_familia",
-        category: "NGS",
-        label: "Painel Segregação (Família)",
-        cost: 5000,
-        type: "csv_filter",
-        filename: "CG2_AtInt_caso_paraplegia_espastica_painel_familia.csv",
-        resultTitle: "Painel Segregação (Família)"
-    },
-    {
-        id: "exoma_probando",
-        category: "NGS",
-        label: "Exoma Probando",
-        cost: 7000,
-        type: "csv_filter",
-        filename: "CG2_AtInt_caso_paraplegia_espastica_exoma_probando.csv",
-        resultTitle: "Exoma Probando"
-    },
-    {
-        id: "exoma_familia",
-        category: "NGS",
-        label: "Exoma Trio (Toda Família)",
-        cost: 10000,
-        type: "csv_filter",
-        filename: "CG2_AtInt_caso_paraplegia_espastica_exoma_familia.csv",
-        resultTitle: "Exoma Trio (Toda Família)"
-    }
-];
+function b64ToBytes(b64) {
+    return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
+
+async function decryptSecret(secret, box) {
+    const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt: b64ToBytes(SECRETS.salt), iterations: SECRETS.iterations, hash: "SHA-256" },
+        material, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64ToBytes(box.iv) }, key, b64ToBytes(box.data));
+    return new TextDecoder().decode(plain);
+}
 
 let purchasedExams = new Set();
 let pendingSangerExamId = null;
@@ -101,17 +44,31 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 
-function tryLogin() {
+async function tryLogin() {
     const input = document.getElementById("password-input").value;
     const errorMsg = document.getElementById("login-error");
-    
-    if (btoa(input) === CONFIG.accessHash) {
+    const button = document.getElementById("password-button");
+
+    if (!window.crypto || !crypto.subtle) {
+        errorMsg.innerText = "Abra o site por HTTPS para acessar o desafio.";
+        errorMsg.style.display = "block";
+        return;
+    }
+
+    button.disabled = true;
+    try {
+        const data = JSON.parse(await decryptSecret(input, SECRETS));
+        EXAMS_DB = data.exams;
+        HIGHLIGHT_TERMS = (data.highlightTerms || []).map(t => t.toUpperCase());
+        sessionPassword = input;
         document.getElementById("password-container").style.display = "none";
         document.getElementById("game-container").style.display = "flex";
-        initExamCategories(); 
-    } else {
+        initExamCategories();
+    } catch (err) {
         errorMsg.style.display = "block";
         setTimeout(() => errorMsg.style.display = "none", 2000);
+    } finally {
+        button.disabled = false;
     }
 }
 
@@ -131,25 +88,26 @@ function switchTab(tabId) {
 
 function updateMoneyDisplay(newValue, animate = true) {
     const element = document.getElementById("total-money");
+    // O saldo real muda na hora; a animação é só visual.
+    CONFIG.money = newValue;
+    if (moneyAnimationId) cancelAnimationFrame(moneyAnimationId);
+
     if (!animate) {
-        CONFIG.money = newValue;
+        displayedMoney = newValue;
         element.innerText = formatCurrency(newValue);
         return;
     }
-    const startValue = CONFIG.money;
-    const endValue = newValue;
+    const startValue = displayedMoney;
     const duration = 1000;
     const startTime = performance.now();
 
     function update(currentTime) {
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        const currentMoney = startValue + (endValue - startValue) * progress;
-        element.innerText = formatCurrency(currentMoney);
-        if (progress < 1) requestAnimationFrame(update);
-        else CONFIG.money = endValue;
+        const progress = Math.min(Math.max((currentTime - startTime) / duration, 0), 1);
+        displayedMoney = startValue + (newValue - startValue) * progress;
+        element.innerText = formatCurrency(displayedMoney);
+        moneyAnimationId = progress < 1 ? requestAnimationFrame(update) : null;
     }
-    requestAnimationFrame(update);
+    moneyAnimationId = requestAnimationFrame(update);
 }
 
 function formatCurrency(val) {
@@ -248,7 +206,16 @@ function executePurchase(exam, userGeneInput) {
     }, CONFIG.examDelay);
 }
 
-function processResult(exam, userGeneInput) {
+async function resolveSangerResult(exam, gene) {
+    for (const variant of exam.variants || []) {
+        try {
+            return await decryptSecret(`${sessionPassword}\u0000${gene}`, variant);
+        } catch (err) { /* gene incorreto para esta variante */ }
+    }
+    return exam.failResult;
+}
+
+async function processResult(exam, userGeneInput) {
     const resultsDiv = document.getElementById("results");
     const emptyState = resultsDiv.querySelector('.empty-state');
     if(emptyState) emptyState.remove();
@@ -260,7 +227,7 @@ function processResult(exam, userGeneInput) {
     let bodyContent = "";
     
     if (exam.type === "input_gene") {
-        bodyContent = exam.correctGenes.includes(userGeneInput) ? exam.successResult : exam.failResult;
+        bodyContent = await resolveSangerResult(exam, userGeneInput);
     } else if (exam.type === "csv_filter") {
         // Criando o botão de download para arquivos CSV
         const downloadBtnHtml = `
@@ -291,21 +258,27 @@ function processResult(exam, userGeneInput) {
 }
 
 function generateHtmlFromCSV(title, csvText) {
-    const rows = csvText.trim().split("\n");
+    const lines = csvText.replace(/^\uFEFF/, "").split(/\r?\n/);
+    const separator = lines[0].includes(";") ? ";" : ",";
+
+    // Descarta linhas sem dados e colunas vazias no fim da tabela
+    const rows = lines
+        .map(line => line.split(separator).map(c => c.trim()))
+        .filter(cols => cols.some(c => c !== ""));
+    if (rows.length === 0) return `<strong>${title}</strong><p>Arquivo sem dados.</p>`;
+    const width = Math.max(...rows.map(cols => cols.reduce((last, c, i) => c !== "" ? i + 1 : last, 0)));
+
     let html = `<strong>${title}</strong><div class="result-table-container"><table class="result-table"><thead><tr>`;
-    
-    const separator = rows[0].includes(";") ? ";" : ",";
-    
-    const headers = rows[0].split(separator);
-    headers.forEach(h => html += `<th>${h.trim()}</th>`);
+    rows[0].slice(0, width).forEach(h => html += `<th>${h}</th>`);
     html += '</tr></thead><tbody>';
-    
-    for(let i=1; i<rows.length; i++) {
-        let cols = rows[i].split(separator);
-        let isHighlight = cols.some(c => c.toUpperCase().includes("SPG11"));
-        
+
+    for (let i = 1; i < rows.length; i++) {
+        const cols = rows[i].slice(0, width);
+        while (cols.length < width) cols.push("");
+        const isHighlight = cols.some(c => HIGHLIGHT_TERMS.some(t => c.toUpperCase().includes(t)));
+
         html += `<tr class="${isHighlight ? 'highlight-variant' : ''}">`;
-        cols.forEach(c => html += `<td>${c.trim()}</td>`);
+        cols.forEach(c => html += `<td>${c}</td>`);
         html += '</tr>';
     }
     return html + '</tbody></table></div>';
