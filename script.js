@@ -95,12 +95,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (e.target.id === "sanger-modal") closeSangerModal();
     });
 
-    const summary = document.getElementById("case-summary");
-    try { summary.open = localStorage.getItem("desafio-cg2:resumo-aberto") === "1"; } catch (err) { /* ignora */ }
-    summary.addEventListener("toggle", () => {
-        try { localStorage.setItem("desafio-cg2:resumo-aberto", summary.open ? "1" : "0"); } catch (err) { /* ignora */ }
-    });
-
     setInterval(updateCountdowns, 500);
 });
 
@@ -172,9 +166,6 @@ function switchTab(tabId) {
 
     const btnMap = { 'caso': 0, 'exames': 1, 'resultados': 2 };
     document.querySelectorAll(".tab-btn")[btnMap[tabId]].classList.add("active");
-
-    // O resumo do caso aparece nas abas em que o histórico não está visível
-    document.getElementById("case-summary").style.display = tabId === "caso" ? "none" : "block";
 
     if (tabId === 'resultados') {
         const badge = document.getElementById("notification-badge");
